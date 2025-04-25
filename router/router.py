@@ -47,14 +47,41 @@ class LSA:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LSA':
-        vizinhos = {k: Vizinho.from_dict(v) for k, v in data["vizinhos"].items()}
+        # Validação dos campos obrigatórios
+        required_fields = ["id", "ip", "seq", "vizinhos"]
+        for field in required_fields:
+            if field not in data:
+                raise ValueError(f"Campo obrigatório '{field}' ausente no LSA")
+        
+        # Validação dos tipos dos campos
+        if not isinstance(data["id"], str):
+            raise ValueError("Campo 'id' deve ser uma string")
+        if not isinstance(data["ip"], str):
+            raise ValueError("Campo 'ip' deve ser uma string")
+        if not isinstance(data["seq"], int):
+            raise ValueError("Campo 'seq' deve ser um inteiro")
+        if not isinstance(data["vizinhos"], dict):
+            raise ValueError("Campo 'vizinhos' deve ser um dicionário")
+
+        # Validação dos vizinhos
+        vizinhos = {}
+        for k, v in data["vizinhos"].items():
+            if not isinstance(k, str):
+                raise ValueError(f"Chave de vizinho '{k}' deve ser uma string")
+            if not isinstance(v, dict) or "ip" not in v or "peso" not in v:
+                raise ValueError(f"Vizinho '{k}' deve ter campos 'ip' e 'peso'")
+            if not isinstance(v["ip"], str):
+                raise ValueError(f"IP do vizinho '{k}' deve ser uma string")
+            if not isinstance(v["peso"], int):
+                raise ValueError(f"Peso do vizinho '{k}' deve ser um inteiro")
+            vizinhos[k] = Vizinho.from_dict(v)
+        
         return cls(
             id=data["id"],
             ip=data["ip"],
             seq=data["seq"],
             vizinhos=vizinhos
         )
-    
 
 class LSDB:
     def __init__(self):
@@ -88,16 +115,22 @@ class LSDB:
                     
         return grafo
 
-
 class TabelaRotas:
     def __init__(self, grafo: Dict[str, Dict[str, int]], origem: str):
-        self.rotas: Dict[str, Tuple[str, int]] = {}  # destino: (via, custo)
+        self  .rotas: Dict[str, Tuple[str, int]] = {}  # destino: (via, custo)
         if origem in grafo:
             self._dijkstra(grafo, origem)
         else:
             log(f"ERRO: Origem {origem} não existe no grafo")
 
     def _dijkstra(self, grafo: Dict[str, Dict[str, int]], origem: str):
+        # Validação de pesos negativos
+        for node in grafo:
+            for vizinho, peso in grafo[node].items():
+                if peso < 0:
+                    log(f"ERRO: Peso negativo detectado na conexão {node} -> {vizinho}: {peso}")
+                    raise ValueError(f"Peso negativo inválido na conexão {node} -> {vizinho}")
+
         # Inicializa dist e prev para todos os nós no grafo
         dist = {n: float('inf') for n in grafo}
         prev = {n: None for n in grafo}
@@ -105,18 +138,25 @@ class TabelaRotas:
         heap = [(0, origem)]
         visitados = set()
 
+        log(f"Iniciando Dijkstra a partir de {origem}")
+        log(f"Estado inicial: dist={dist}, heap={[(d, n) for d, n in heap]}")
+
         while heap:
             d, atual = heapq.heappop(heap)
             if atual in visitados:
+                log(f"Ignorando {atual}: já visitado")
                 continue
                 
             visitados.add(atual)
+            log(f"Processando {atual} com distância {d}")
             
             if atual not in grafo:
+                log(f"AVISO: {atual} não está no grafo, ignorando")
                 continue
                 
             for vizinho, peso in grafo[atual].items():
                 if vizinho not in grafo:
+                    log(f"AVISO: Vizinho {vizinho} de {atual} não está no grafo, ignorando")
                     continue
                     
                 alt = dist[atual] + peso
@@ -128,6 +168,11 @@ class TabelaRotas:
                     dist[vizinho] = alt
                     prev[vizinho] = atual
                     heapq.heappush(heap, (alt, vizinho))
+                    log(f"Atualizado: dist[{vizinho}]={alt}, prev[{vizinho}]={atual}")
+                else:
+                    log(f"Sem atualização: dist[{vizinho}]={dist[vizinho]} é menor ou igual a {alt}")
+
+            log(f"Estado atual: dist={dist}, heap={[(d, n) for d, n in heap]}, visitados={visitados}")
 
         # Calcula rotas apenas para nós que foram alcançados
         for destino in grafo:
@@ -137,7 +182,9 @@ class TabelaRotas:
                     via = prev[via]
                 if prev[via] == origem:  # Garante que existe caminho
                     self.rotas[destino] = (via, dist[destino])
+                    log(f"Rota calculada: {origem} -> {destino} via {via} com custo {dist[destino]}")
 
+        log(f"Dijkstra concluído. Rotas finais: {self.rotas}")
 
 class Router:
     def __init__(self, id: str, ip: str, vizinhos: Dict[str, Vizinho]):
@@ -197,14 +244,21 @@ class Router:
 
     def escutar_lsa(self):
         while True:
-            data, addr = self.socket.recvfrom(4096)
-            lsa_dict = json.loads(data.decode())
-            lsa = LSA.from_dict(lsa_dict)
-            log(f"{self.id} recebeu LSA de {lsa.id} (seq {lsa.seq}) de {addr}")
-            if self.lsdb.atualizar_lsa(lsa):
-                log(f"{self.id} propagando LSA de {lsa.id} para vizinhos")
-                self.propagar_lsa(lsa, addr)
-                self.recalcular_rotas()
+            try:
+                data, addr = self.socket.recvfrom(4096)
+                lsa_dict = json.loads(data.decode())
+                lsa = LSA.from_dict(lsa_dict)
+                log(f"{self.id} recebeu LSA de {lsa.id} (seq {lsa.seq}) de {addr}")
+                if self.lsdb.atualizar_lsa(lsa):
+                    log(f"{self.id} propagando LSA de {lsa.id} para vizinhos")
+                    self.propagar_lsa(lsa, addr)
+                    self.recalcular_rotas()
+            except json.JSONDecodeError as e:
+                log(f"{self.id} erro ao decodificar JSON de {addr}: {e}")
+            except ValueError as e:
+                log(f"{self.id} pacote inválido recebido de {addr}: {e}")
+            except Exception as e:
+                log(f"{self.id} erro ao processar LSA de {addr}: {e}")
 
     def propagar_lsa(self, lsa: LSA, origem: Tuple[str, int]):
         for viz in self.vizinhos.values():
