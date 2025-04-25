@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  router1:
+    build:
+      context: ./router
+      dockerfile: Dockerfile
+    environment:
+      - router_links=router2,router3  # Conexão com router2 E router3
+      - my_ip=172.20.1.3
+      - my_name=router1
+      - router2_ip=172.20.2.3
+      - router3_ip=172.20.3.3  # Novo vizinho direto
+    networks:
+      subnet_1:
+        ipv4_address: 172.20.1.3
+      subnet_2:
+        ipv4_address: 172.20.2.4
+      subnet_3:  # Nova subrede para conexão direta com router3
+        ipv4_address: 172.20.3.5
+    cap_add:
+      - NET_ADMIN
+
+  router2:
+    build:
+      context: ./router
+      dockerfile: Dockerfile
+    environment:
+      - router_links=router1,router3
+      - my_ip=172.20.2.3
+      - my_name=router2
+      - router1_ip=172.20.1.3
+      - router3_ip=172.20.3.3
+    networks:
+      subnet_2:
+        ipv4_address: 172.20.2.3
+      subnet_1:
+        ipv4_address: 172.20.1.2
+      subnet_3:
+        ipv4_address: 172.20.3.4
+    cap_add:
+      - NET_ADMIN
+
+  router3:
+    build:
+      context: ./router
+      dockerfile: Dockerfile
+    environment:
+      - router_links=router2,router1  # Conexão com router2 E router1
+      - my_ip=172.20.3.3
+      - my_name=router3
+      - router2_ip=172.20.2.3
+      - router1_ip=172.20.1.3  # Novo vizinho direto
+    networks:
+      subnet_3:
+        ipv4_address: 172.20.3.3
+      subnet_2:
+        ipv4_address: 172.20.2.2
+      subnet_1:  # Nova subrede para conexão direta com router1
+        ipv4_address: 172.20.1.5
+    cap_add:
+      - NET_ADMIN
+
+  host1a:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_1:
+        ipv4_address: 172.20.1.10
+    depends_on:
+      - router1
+    command: ["python", "main.py", "--test", "ping 172.20.3.10"]  # Teste automático
+
+  host1b:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_1:
+        ipv4_address: 172.20.1.11
+    depends_on:
+      - router1
+
+  host2a:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_2:
+        ipv4_address: 172.20.2.10
+    depends_on:
+      - router2
+
+  host2b:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_2:
+        ipv4_address: 172.20.2.11
+    depends_on:
+      - router2
+
+  host3a:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_3:
+        ipv4_address: 172.20.3.10
+    depends_on:
+      - router3
+    command: ["python", "main.py", "--test", "ping 172.20.1.10"]  # Teste automático
+
+  host3b:
+    build:
+      context: ./host
+      dockerfile: Dockerfile
+    networks:
+      subnet_3:
+        ipv4_address: 172.20.3.11
+    depends_on:
+      - router3
+
+networks:
+  subnet_1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+  subnet_2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+  subnet_3:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.3.0/24
