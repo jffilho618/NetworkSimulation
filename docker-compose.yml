@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   router1:
     build:
@@ -20,6 +18,8 @@ services:
         ipv4_address: 172.20.3.5
     cap_add:
       - NET_ADMIN
+    volumes:
+      - ./logs:/app/logs
 
   router2:
     build:
@@ -40,6 +40,8 @@ services:
         ipv4_address: 172.20.3.4
     cap_add:
       - NET_ADMIN
+    volumes:
+      - ./logs:/app/logs
 
   router3:
     build:
@@ -60,72 +62,116 @@ services:
         ipv4_address: 172.20.1.5
     cap_add:
       - NET_ADMIN
+    volumes:
+      - ./logs:/app/logs
 
   host1a:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host1a
+      - my_ip=172.20.1.10
     networks:
       subnet_1:
         ipv4_address: 172.20.1.10
     depends_on:
       - router1
-    command: ["python", "main.py", "--test", "ping 172.20.1.3", "ping 172.20.1.11"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.1.3' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
   host1b:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host1b
+      - my_ip=172.20.1.11
     networks:
       subnet_1:
         ipv4_address: 172.20.1.11
     depends_on:
       - router1
-    command: ["python", "main.py", "--test", "ping 172.20.1.3", "ping 172.20.1.10"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.1.3' 'ping 172.20.1.10' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
   host2a:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host2a
+      - my_ip=172.20.2.10
     networks:
       subnet_2:
         ipv4_address: 172.20.2.10
     depends_on:
       - router2
-    command: ["python", "main.py", "--test", "ping 172.20.2.3", "ping 172.20.2.11"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.2.3' 'ping 172.20.2.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.3.10' 'ping 172.20.3.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
   host2b:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host2b
+      - my_ip=172.20.2.11
     networks:
       subnet_2:
         ipv4_address: 172.20.2.11
     depends_on:
       - router2
-    command: ["python", "main.py", "--test", "ping 172.20.2.3", "ping 172.20.2.10"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.2.3' 'ping 172.20.2.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.3.10' 'ping 172.20.3.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
   host3a:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host3a
+      - my_ip=172.20.3.10
     networks:
       subnet_3:
         ipv4_address: 172.20.3.10
     depends_on:
       - router3
-    command: ["python", "main.py", "--test", "ping 172.20.3.3", "ping 172.20.3.11"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.3.3' 'ping 172.20.3.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
   host3b:
     build:
       context: ./host
       dockerfile: Dockerfile
+    environment:
+      - my_name=host3b
+      - my_ip=172.20.3.11
     networks:
       subnet_3:
         ipv4_address: 172.20.3.11
     depends_on:
       - router3
-    command: ["python", "main.py", "--test", "ping 172.20.3.3", "ping 172.20.3.10"]
+    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.3.3' 'ping 172.20.3.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11'"]
+    volumes:
+      - ./logs:/app/logs
+    cap_add:
+      - NET_ADMIN
 
 networks:
   subnet_1:

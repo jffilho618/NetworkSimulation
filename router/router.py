@@ -1,16 +1,22 @@
 import socket
 import time
 import json
-import os 
+import os
 import threading
 import subprocess
 from typing import Dict, Any, Set, Tuple, List, Optional
 import heapq
 
 PORTA = 5000
+LOG_FILE = f"/app/logs/{os.environ.get('my_name', 'router')}_tests.log"
 
 def log(msg: str):
     print(msg, flush=True)
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}\n")
+    except Exception as e:
+        print(f"Erro ao salvar log em {LOG_FILE}: {e}", flush=True)
 
 class Vizinho:
     def __init__(self, ip: str, peso: int):
@@ -207,6 +213,8 @@ class Router:
 
     def _testar_conectividade_inicial(self):
         log(f"{self.id} iniciando testes de conectividade inicial...")
+        sucessos = 0
+        falhas = 0
         
         for viz_id, viz in self.vizinhos.items():
             try:
@@ -217,11 +225,17 @@ class Router:
                     timeout=10
                 )
                 status = "SUCESSO" if result.returncode == 0 else "FALHA"
+                if result.returncode == 0:
+                    sucessos += 1
+                else:
+                    falhas += 1
                 log(f"Ping para vizinho {viz_id} ({viz.ip}): {status}\n{result.stdout}\n{result.stderr}")
             except subprocess.TimeoutExpired:
                 log(f"Ping para vizinho {viz_id} ({viz.ip}): TIMEOUT")
+                falhas += 1
             except Exception as e:
                 log(f"Ping para vizinho {viz_id} ({viz.ip}): ERRO - {str(e)}")
+                falhas += 1
         
         subrede_principal = {
             "router1": ["172.20.1.10", "172.20.1.11"],
@@ -239,13 +253,21 @@ class Router:
                         timeout=10
                     )
                     status = "SUCESSO" if result.returncode == 0 else "FALHA"
+                    if result.returncode == 0:
+                        sucessos += 1
+                    else:
+                        falhas += 1
                     log(f"Ping para host {host_ip} na subrede principal: {status}\n{result.stdout}\n{result.stderr}")
                 except subprocess.TimeoutExpired:
                     log(f"Ping para host {host_ip} na subrede principal: TIMEOUT")
+                    falhas += 1
                 except Exception as e:
                     log(f"Ping para host {host_ip} na subrede principal: ERRO - {str(e)}")
+                    falhas += 1
         else:
             log(f"{self.id} não tem subrede principal definida para testar hosts")
+        
+        log(f"{self.id} resumo de conectividade inicial: {sucessos} SUCESSOS, {falhas} FALHAS")
 
     def criar_lsa(self) -> LSA:
         self.seq += 1
@@ -304,12 +326,45 @@ class Router:
     def recalcular_rotas(self):
         grafo = self.lsdb.get_topologia()
         log(f"{self.id} recalculando rotas com topologia: {grafo}")
-        if len(self.lsdb.lsas) < len(self.vizinhos) + 1:  # Garante que todos os LSAs foram recebidos
+        if len(self.lsdb.lsas) < len(self.vizinhos) + 1:
             log(f"{self.id} LSDB incompleto, adiando recálculo de rotas")
             return
         tabela = TabelaRotas(grafo, self.id)
         log(f"{self.id} tabela de rotas calculada: {tabela.rotas}")
         self.aplicar_rotas(tabela)
+        
+        # Teste de conectividade pós-roteamento
+        test_hosts = {
+            "router1": ["172.20.2.10", "172.20.2.11", "172.20.3.10", "172.20.3.11"],
+            "router2": ["172.20.1.10", "172.20.1.11", "172.20.3.10", "172.20.3.11"],
+            "router3": ["172.20.1.10", "172.20.1.11", "172.20.2.10", "172.20.2.11"]
+        }
+        sucessos = 0
+        falhas = 0
+        
+        if self.id in test_hosts:
+            for host_ip in test_hosts[self.id]:
+                try:
+                    result = subprocess.run(
+                        ["ping", "-c", "3", host_ip],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    status = "SUCESSO" if result.returncode == 0 else "FALHA"
+                    if result.returncode == 0:
+                        sucessos += 1
+                    else:
+                        falhas += 1
+                    log(f"Ping pós-roteamento para {host_ip}: {status}\n{result.stdout}\n{result.stderr}")
+                except subprocess.TimeoutExpired:
+                    log(f"Ping pós-roteamento para {host_ip}: TIMEOUT")
+                    falhas += 1
+                except Exception as e:
+                    log(f"Ping pós-roteamento para {host_ip}: ERRO - {str(e)}")
+                    falhas += 1
+        
+        log(f"{self.id} resumo de conectividade pós-roteamento: {sucessos} SUCESSOS, {falhas} FALHAS")
 
     def aplicar_rotas(self, tabela: TabelaRotas):
         try:

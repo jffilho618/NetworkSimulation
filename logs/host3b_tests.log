@@ -1,0 +1,71 @@
+2025-04-29 09:59:09 - Iniciando configuração e testes de conectividade...
+2025-04-29 09:59:09 - Configuração de gateway 172.20.3.3: SUCESSO
+
+
+2025-04-29 09:59:11 - Ping para 172.20.3.3: SUCESSO
+PING 172.20.3.3 (172.20.3.3) 56(84) bytes of data.
+64 bytes from 172.20.3.3: icmp_seq=1 ttl=64 time=0.061 ms
+64 bytes from 172.20.3.3: icmp_seq=2 ttl=64 time=0.037 ms
+64 bytes from 172.20.3.3: icmp_seq=3 ttl=64 time=0.060 ms
+
+--- 172.20.3.3 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2068ms
+rtt min/avg/max/mdev = 0.037/0.052/0.061/0.011 ms
+
+
+2025-04-29 09:59:13 - Ping para 172.20.3.10: SUCESSO
+PING 172.20.3.10 (172.20.3.10) 56(84) bytes of data.
+64 bytes from 172.20.3.10: icmp_seq=1 ttl=64 time=0.101 ms
+64 bytes from 172.20.3.10: icmp_seq=2 ttl=64 time=0.170 ms
+64 bytes from 172.20.3.10: icmp_seq=3 ttl=64 time=0.038 ms
+
+--- 172.20.3.10 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2045ms
+rtt min/avg/max/mdev = 0.038/0.103/0.170/0.053 ms
+
+
+2025-04-29 09:59:15 - Ping para 172.20.1.10: SUCESSO
+PING 172.20.1.10 (172.20.1.10) 56(84) bytes of data.
+64 bytes from 172.20.1.10: icmp_seq=1 ttl=63 time=0.080 ms
+64 bytes from 172.20.1.10: icmp_seq=2 ttl=63 time=0.052 ms
+64 bytes from 172.20.1.10: icmp_seq=3 ttl=63 time=0.081 ms
+
+--- 172.20.1.10 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2044ms
+rtt min/avg/max/mdev = 0.052/0.071/0.081/0.013 ms
+
+
+2025-04-29 09:59:17 - Ping para 172.20.1.11: SUCESSO
+PING 172.20.1.11 (172.20.1.11) 56(84) bytes of data.
+64 bytes from 172.20.1.11: icmp_seq=1 ttl=63 time=0.068 ms
+64 bytes from 172.20.1.11: icmp_seq=2 ttl=63 time=0.085 ms
+64 bytes from 172.20.1.11: icmp_seq=3 ttl=63 time=0.085 ms
+
+--- 172.20.1.11 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2044ms
+rtt min/avg/max/mdev = 0.068/0.079/0.085/0.008 ms
+
+
+2025-04-29 09:59:19 - Ping para 172.20.2.10: SUCESSO
+PING 172.20.2.10 (172.20.2.10) 56(84) bytes of data.
+64 bytes from 172.20.2.10: icmp_seq=1 ttl=63 time=0.115 ms
+64 bytes from 172.20.2.10: icmp_seq=2 ttl=63 time=0.081 ms
+64 bytes from 172.20.2.10: icmp_seq=3 ttl=63 time=0.087 ms
+
+--- 172.20.2.10 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2044ms
+rtt min/avg/max/mdev = 0.081/0.094/0.115/0.014 ms
+
+
+2025-04-29 09:59:21 - Ping para 172.20.2.11: SUCESSO
+PING 172.20.2.11 (172.20.2.11) 56(84) bytes of data.
+64 bytes from 172.20.2.11: icmp_seq=1 ttl=63 time=0.069 ms
+64 bytes from 172.20.2.11: icmp_seq=2 ttl=63 time=0.121 ms
+64 bytes from 172.20.2.11: icmp_seq=3 ttl=63 time=0.055 ms
+
+--- 172.20.2.11 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2045ms
+rtt min/avg/max/mdev = 0.055/0.081/0.121/0.028 ms
+
+
+2025-04-29 09:59:21 - Resumo de testes de conectividade: 6 SUCESSOS, 0 FALHAS
