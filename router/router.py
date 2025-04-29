@@ -6,6 +6,7 @@ import threading
 import subprocess
 from typing import Dict, Any, Set, Tuple, List, Optional
 import heapq
+import re
 
 PORTA = 5000
 LOG_FILE = f"/app/logs/{os.environ.get('my_name', 'router')}_tests.log"
@@ -188,6 +189,11 @@ class Router:
         self.vizinhos = vizinhos
         self.seq = 0
         self.lsdb = LSDB()
+        self.lsa_hist: Set[Tuple[str, int]] = set()
+        self.lsa_hist_lock = threading.Lock()  # Lock para thread-safety
+        self.lsa_send_lock = threading.Lock()  # Lock para envio de LSAs
+        self.last_connectivity_test = 0  # Timestamp do último teste de conectividade
+        self.connectivity_test_interval = 30  # Intervalo mínimo entre testes (30 segundos)
         
         self.lsdb.atualizar_lsa(self.criar_lsa())
         
@@ -224,10 +230,12 @@ class Router:
                     text=True,
                     timeout=10
                 )
-                status = "SUCESSO" if result.returncode == 0 else "FALHA"
-                if result.returncode == 0:
+                packet_loss = self._get_packet_loss(result.stdout)
+                if result.returncode == 0 and packet_loss == 0:
+                    status = "SUCESSO"
                     sucessos += 1
                 else:
+                    status = f"FALHA (perda de pacotes: {packet_loss}%)"
                     falhas += 1
                 log(f"Ping para vizinho {viz_id} ({viz.ip}): {status}\n{result.stdout}\n{result.stderr}")
             except subprocess.TimeoutExpired:
@@ -252,10 +260,12 @@ class Router:
                         text=True,
                         timeout=10
                     )
-                    status = "SUCESSO" if result.returncode == 0 else "FALHA"
-                    if result.returncode == 0:
+                    packet_loss = self._get_packet_loss(result.stdout)
+                    if result.returncode == 0 and packet_loss == 0:
+                        status = "SUCESSO"
                         sucessos += 1
                     else:
+                        status = f"FALHA (perda de pacotes: {packet_loss}%)"
                         falhas += 1
                     log(f"Ping para host {host_ip} na subrede principal: {status}\n{result.stdout}\n{result.stderr}")
                 except subprocess.TimeoutExpired:
@@ -269,30 +279,37 @@ class Router:
         
         log(f"{self.id} resumo de conectividade inicial: {sucessos} SUCESSOS, {falhas} FALHAS")
 
+    def _get_packet_loss(self, ping_output: str) -> float:
+        match = re.search(r"(\d+\.?\d*)% packet loss", ping_output)
+        if match:
+            return float(match.group(1))
+        return 100.0
+
     def criar_lsa(self) -> LSA:
         self.seq += 1
         return LSA(self.id, self.ip, self.seq, self.vizinhos)
 
     def enviar_lsa(self):
-        if not self.vizinhos:
-            log(f"{self.id} não tem vizinhos para enviar LSA")
-            return
+        with self.lsa_send_lock:
+            if not self.vizinhos:
+                log(f"{self.id} não tem vizinhos para enviar LSA")
+                return
+                
+            lsa = self.criar_lsa()
+            lsa_json = json.dumps(lsa.to_dict()).encode()
             
-        lsa = self.criar_lsa()
-        lsa_json = json.dumps(lsa.to_dict()).encode()
-        
-        enviados = []
-        for viz_id, viz in self.vizinhos.items():
-            try:
-                self.socket.sendto(lsa_json, (viz.ip, PORTA))
-                enviados.append(f"{viz_id}({viz.ip})")
-            except Exception as e:
-                log(f"{self.id} erro ao enviar LSA para {viz_id}: {e}")
-        
-        if enviados:
-            log(f"{self.id} enviou LSA (seq {lsa.seq}) para: {', '.join(enviados)}")
-        else:
-            log(f"{self.id} falhou ao enviar LSA para qualquer vizinho")
+            enviados = []
+            for viz_id, viz in self.vizinhos.items():
+                try:
+                    self.socket.sendto(lsa_json, (viz.ip, PORTA))
+                    enviados.append(f"{viz_id}({viz.ip})")
+                except Exception as e:
+                    log(f"{self.id} erro ao enviar LSA para {viz_id}: {e}")
+            
+            if enviados:
+                log(f"{self.id} enviou LSA (seq {lsa.seq}) para: {', '.join(enviados)}")
+            else:
+                log(f"{self.id} falhou ao enviar LSA para qualquer vizinho")
 
     def escutar_lsa(self):
         while True:
@@ -304,7 +321,7 @@ class Router:
                 if self.lsdb.atualizar_lsa(lsa):
                     log(f"{self.id} propagando LSA de {lsa.id} para vizinhos")
                     self.propagar_lsa(lsa, addr)
-                    self.recalcular_rotas()
+                self.recalcular_rotas()
             except json.JSONDecodeError as e:
                 log(f"{self.id} erro ao decodificar JSON de {addr}: {e}")
             except ValueError as e:
@@ -312,16 +329,32 @@ class Router:
             except Exception as e:
                 log(f"{self.id} erro ao processar LSA de {addr}: {e}")
 
-    def propagar_lsa(self, lsa: LSA, origem: Tuple[str, int]):
-        for viz in self.vizinhos.values():
-            if (viz.ip, PORTA) != origem:
-                self.socket.sendto(json.dumps(lsa.to_dict()).encode(), (viz.ip, PORTA))
-                log(f"{self.id} propagou LSA de {lsa.id} para {viz.ip}")
+    def propagar_lsa(self, lsa: LSA, remetente: Tuple[str, int]):
+        try:
+            remetente_ip = remetente[0]
+            with self.lsa_hist_lock:
+                lsa_id = f"{lsa.id}:{lsa.seq}"
+                if lsa_id in self.lsa_hist:
+                    log(f"{self.id} descartando LSA {lsa.id} (seq {lsa.seq}) - já propagado")
+                    return
+                self.lsa_hist.add(lsa_id)
+                log(f"{self.id} adicionou LSA {lsa.id} (seq {lsa.seq}) ao histórico")
+            
+            lsa_json = json.dumps(lsa.to_dict()).encode()
+            for viz_id, vizinho in self.vizinhos.items():
+                if vizinho.ip != remetente_ip:
+                    try:
+                        self.socket.sendto(lsa_json, (vizinho.ip, PORTA))
+                        log(f"{self.id} propagou LSA de {lsa.id} (seq {lsa.seq}) para {viz_id} ({vizinho.ip})")
+                    except Exception as e:
+                        log(f"{self.id} erro ao propagar LSA de {lsa.id} para {viz_id} ({vizinho.ip}): {e}")
+        except Exception as e:
+            log(f"{self.id} erro geral ao propagar LSA {lsa.id} (seq {lsa.seq}): {e}")
 
     def enviar_periodicamente(self):
         while True:
             self.enviar_lsa()
-            time.sleep(10)
+            time.sleep(30)  # Aumentado de 15 para 30 segundos
 
     def recalcular_rotas(self):
         grafo = self.lsdb.get_topologia()
@@ -333,7 +366,13 @@ class Router:
         log(f"{self.id} tabela de rotas calculada: {tabela.rotas}")
         self.aplicar_rotas(tabela)
         
-        # Teste de conectividade pós-roteamento
+        # Teste de conectividade pós-roteamento com controle de intervalo
+        current_time = time.time()
+        if current_time - self.last_connectivity_test < self.connectivity_test_interval:
+            log(f"{self.id} adiando teste de conectividade - intervalo mínimo não atingido")
+            return
+        self.last_connectivity_test = current_time
+
         test_hosts = {
             "router1": ["172.20.2.10", "172.20.2.11", "172.20.3.10", "172.20.3.11"],
             "router2": ["172.20.1.10", "172.20.1.11", "172.20.3.10", "172.20.3.11"],
@@ -351,10 +390,12 @@ class Router:
                         text=True,
                         timeout=10
                     )
-                    status = "SUCESSO" if result.returncode == 0 else "FALHA"
-                    if result.returncode == 0:
+                    packet_loss = self._get_packet_loss(result.stdout)
+                    if result.returncode == 0 and packet_loss == 0:
+                        status = "SUCESSO"
                         sucessos += 1
                     else:
+                        status = f"FALHA (perda de pacotes: {packet_loss}%)"
                         falhas += 1
                     log(f"Ping pós-roteamento para {host_ip}: {status}\n{result.stdout}\n{result.stderr}")
                 except subprocess.TimeoutExpired:
@@ -417,7 +458,6 @@ if __name__ == "__main__":
             log(f"AVISO: IP para {nome} não encontrado nas variáveis de ambiente")
 
     r = Router(my_id, my_ip, vizinhos)
-    r.enviar_lsa()
     
     while True:
         time.sleep(1)
