@@ -57,7 +57,9 @@ if "--test" in sys.argv:
     router_ip = (
         "172.20.1.3" if "172.20.1" in my_ip else
         "172.20.2.3" if "172.20.2" in my_ip else
-        "172.20.3.3"
+        "172.20.3.3" if "172.20.3" in my_ip else
+        "172.20.4.3" if "172.20.4" in my_ip else
+        "172.20.5.3"
     )
     
     # Configurar gateway
