@@ -7,6 +7,7 @@ import subprocess
 from typing import Dict, Any, Set, Tuple, List, Optional
 import heapq
 import re
+import random
 
 PORTA = 5000
 LOG_FILE = f"/app/logs/{os.environ.get('my_name', 'router')}_tests.log"
@@ -76,8 +77,8 @@ class LSA:
                 raise ValueError(f"Vizinho '{k}' deve ter campos 'ip' e 'peso'")
             if not isinstance(v["ip"], str):
                 raise ValueError(f"IP do vizinho '{k}' deve ser uma string")
-            if not isinstance(v["peso"], int):
-                raise ValueError(f"Peso do vizinho '{k}' deve ser um inteiro")
+            if not isinstance(v["peso"], int) or v["peso"] < 1:
+                raise ValueError(f"Peso do vizinho '{k}' deve ser um inteiro positivo")
             vizinhos[k] = Vizinho.from_dict(v)
         
         return cls(
@@ -190,10 +191,10 @@ class Router:
         self.seq = 0
         self.lsdb = LSDB()
         self.lsa_hist: Set[Tuple[str, int]] = set()
-        self.lsa_hist_lock = threading.Lock()  # Lock para thread-safety
-        self.lsa_send_lock = threading.Lock()  # Lock para envio de LSAs
-        self.last_connectivity_test = 0  # Timestamp do último teste de conectividade
-        self.connectivity_test_interval = 30  # Intervalo mínimo entre testes (30 segundos)
+        self.lsa_hist_lock = threading.Lock()
+        self.lsa_send_lock = threading.Lock()
+        self.last_connectivity_test = 0
+        self.connectivity_test_interval = 30
         
         self.lsdb.atualizar_lsa(self.criar_lsa())
         
@@ -356,7 +357,7 @@ class Router:
     def enviar_periodicamente(self):
         while True:
             self.enviar_lsa()
-            time.sleep(30)  # Aumentado de 15 para 30 segundos
+            time.sleep(30)
 
     def recalcular_rotas(self):
         grafo = self.lsdb.get_topologia()
@@ -368,7 +369,6 @@ class Router:
         log(f"{self.id} tabela de rotas calculada: {tabela.rotas}")
         self.aplicar_rotas(tabela)
         
-        # Teste de conectividade pós-roteamento com controle de intervalo
         current_time = time.time()
         if current_time - self.last_connectivity_test < self.connectivity_test_interval:
             log(f"{self.id} adiando teste de conectividade - intervalo mínimo não atingido")
@@ -456,8 +456,12 @@ if __name__ == "__main__":
     for nome in links:
         ip_env = os.environ.get(f"{nome}_ip")
         if ip_env:
-            vizinhos[nome] = Vizinho(ip_env, 1)
-            log(f"Adicionado vizinho {nome} com IP {ip_env}")
+            # Gerar um peso aleatório entre 1 e 10, usando semente determinística
+            seed = hash(f"{min(my_id, nome)}:{max(my_id, nome)}") % 2**32
+            random.seed(seed)
+            peso = random.randint(1, 10)
+            vizinhos[nome] = Vizinho(ip_env, peso)
+            log(f"Adicionado vizinho {nome} com IP {ip_env} e peso {peso}")
         else:
             log(f"AVISO: IP para {nome} não encontrado nas variáveis de ambiente")
 
