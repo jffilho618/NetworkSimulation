@@ -114,13 +114,14 @@ class NetworkInterface:
                     proximo_salto = partes[2]
                     rotas_existentes[rede] = proximo_salto
             for rede, proximo_salto in rotas_adicionar.items():
-                if (rede in rotas_existentes) and (rotas_adicionar[rede] != rotas_existentes[rede]):
+                if rede in rotas_existentes:
+                    if rotas_existentes[rede] == proximo_salto:
+                        continue  # Rota idêntica já existe, pular
                     rotas_replase[rede] = proximo_salto
-            for rede, proximo_salto in rotas_adicionar.items():
-                if (rede not in rotas_existentes) and (rede not in rotas_replase):
+                else:
                     rotas_adicionar[rede] = proximo_salto
             for rede, proximo_salto in rotas_existentes.items():
-                if (rede not in rotas_adicionar) and (rede not in connected_subnets):
+                if rede not in rotas_adicionar and rede not in connected_subnets:
                     rotas_remover[rede] = proximo_salto
             return rotas_adicionar, rotas_remover, rotas_replase
         except Exception as e:
@@ -132,12 +133,14 @@ class NetworkInterface:
         try:
             subprocess.run(
                 ["ip", "route", "add", destino, "via", proximo_salto],
-                check=True
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
             log("rotas", f"Rota adicionada: {destino} via {proximo_salto}", ROTEADOR_NAME)
             return True
         except subprocess.CalledProcessError as e:
-            log("erros", f"Erro ao adicionar rota: {e}", ROTEADOR_NAME)
+            log("erros", f"Erro ao adicionar rota {destino} via {proximo_salto}: {e.stderr.decode()}", ROTEADOR_NAME)
             return False
 
     @staticmethod
@@ -145,12 +148,14 @@ class NetworkInterface:
         try:
             subprocess.run(
                 ["ip", "route", "del", destino],
-                check=True
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
             log("rotas", f"Rota removida: {destino}", ROTEADOR_NAME)
             return True
         except subprocess.CalledProcessError as e:
-            log("erros", f"Erro ao remover rota: {e}", ROTEADOR_NAME)
+            log("erros", f"Erro ao remover rota {destino}: {e.stderr.decode()}", ROTEADOR_NAME)
             return False
 
     @staticmethod
@@ -158,12 +163,14 @@ class NetworkInterface:
         try:
             subprocess.run(
                 ["ip", "route", "replace", destino, "via", proximo_salto],
-                check=True
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
             log("rotas", f"Rota substituída: {destino} via {proximo_salto}", ROTEADOR_NAME)
             return True
         except subprocess.CalledProcessError as e:
-            log("erros", f"Erro ao substituir rota: {e}", ROTEADOR_NAME)
+            log("erros", f"Erro ao substituir rota {destino} via {proximo_salto}: {e.stderr.decode()}", ROTEADOR_NAME)
             return False
 
     @staticmethod
@@ -187,6 +194,7 @@ class Router:
         self.lsa_send_lock = threading.Lock()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.last_lsdb_hash = None
         os.makedirs(LOG_BASE_DIR, exist_ok=True)
         log("init", f"Roteador inicializado com IP: {self.ip}, Vizinhos: {self.vizinhos}", self.id)
 
@@ -234,6 +242,11 @@ class Router:
 
     def recalcular_rotas(self):
         lsdb_formatted = {lsa.id: {"id": lsa.id, "vizinhos": lsa.vizinhos, "seq": lsa.seq} for lsa in self.lsdb.lsas.values()}
+        lsdb_hash = json.dumps(lsdb_formatted, sort_keys=True)
+        if self.last_lsdb_hash == lsdb_hash:
+            log("rotas", "LSDB não mudou, pulando recálculo de rotas", self.id)
+            return
+        self.last_lsdb_hash = lsdb_hash
         rotas = dijkstra(self.ip, lsdb_formatted)
         rotas_validas = {}
         for destino, proximo_salto in rotas.items():
