@@ -1,331 +1,262 @@
-version: '3.8'
-
 services:
   router1:
     build:
-      context: ./router
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: router/Dockerfile
     environment:
-      - router_links=router2,router3,router4
+      - vizinhos=[router5, 172.20.5.3, 1],[router2, 172.20.2.3, 1]
       - my_ip=172.20.1.3
       - my_name=router1
-      - router2_ip=172.20.2.3
-      - router3_ip=172.20.3.3
-      - router4_ip=172.20.4.3
     networks:
-      subnet_1:
-        ipv4_address: 172.20.1.3
+      subnet_5:
+        ipv4_address: 172.20.5.2
       subnet_2:
         ipv4_address: 172.20.2.4
-      subnet_3:
-        ipv4_address: 172.20.3.5
-      subnet_4:
-        ipv4_address: 172.20.4.5
-    cap_add:
-      - NET_ADMIN
-    volumes:
-      - ./logs:/app/logs
-
-  router2:
-    build:
-      context: ./router
-      dockerfile: Dockerfile
-    environment:
-      - router_links=router1,router3,router5
-      - my_ip=172.20.2.3
-      - my_name=router2
-      - router1_ip=172.20.1.3
-      - router3_ip=172.20.3.3
-      - router5_ip=172.20.5.3
-    networks:
-      subnet_2:
-        ipv4_address: 172.20.2.3
       subnet_1:
-        ipv4_address: 172.20.1.2
-      subnet_3:
-        ipv4_address: 172.20.3.4
-      subnet_5:
-        ipv4_address: 172.20.5.4
+        ipv4_address: 172.20.1.3
     cap_add:
       - NET_ADMIN
-    volumes:
-      - ./logs:/app/logs
-
-  router3:
-    build:
-      context: ./router
-      dockerfile: Dockerfile
-    environment:
-      - router_links=router1,router2,router4
-      - my_ip=172.20.3.3
-      - my_name=router3
-      - router1_ip=172.20.1.3
-      - router2_ip=172.20.2.3
-      - router4_ip=172.20.4.3
-    networks:
-      subnet_3:
-        ipv4_address: 172.20.3.3
-      subnet_1:
-        ipv4_address: 172.20.1.5
-      subnet_2:
-        ipv4_address: 172.20.2.2
-      subnet_4:
-        ipv4_address: 172.20.4.4
-    cap_add:
-      - NET_ADMIN
-    volumes:
-      - ./logs:/app/logs
-
-  router4:
-    build:
-      context: ./router
-      dockerfile: Dockerfile
-    environment:
-      - router_links=router1,router3,router5
-      - my_ip=172.20.4.3
-      - my_name=router4
-      - router1_ip=172.20.1.3
-      - router3_ip=172.20.3.3
-      - router5_ip=172.20.5.3
-    networks:
-      subnet_4:
-        ipv4_address: 172.20.4.3
-      subnet_1:
-        ipv4_address: 172.20.1.4
-      subnet_3:
-        ipv4_address: 172.20.3.2
-      subnet_5:
-        ipv4_address: 172.20.5.5
-    cap_add:
-      - NET_ADMIN
-    volumes:
-      - ./logs:/app/logs
-
-  router5:
-    build:
-      context: ./router
-      dockerfile: Dockerfile
-    environment:
-      - router_links=router2,router4
-      - my_ip=172.20.5.3
-      - my_name=router5
-      - router2_ip=172.20.2.3
-      - router4_ip=172.20.4.3
-    networks:
-      subnet_5:
-        ipv4_address: 172.20.5.3
-      subnet_2:
-        ipv4_address: 172.20.2.5
-      subnet_4:
-        ipv4_address: 172.20.4.2
-    cap_add:
-      - NET_ADMIN
-    volumes:
-      - ./logs:/app/logs
-
+    command: /bin/bash -c "ip route del default && python router.py"
   host1a:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host1a
-      - my_ip=172.20.1.10
     networks:
       subnet_1:
         ipv4_address: 172.20.1.10
     depends_on:
       - router1
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.1.3' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.1.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
   host1b:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host1b
-      - my_ip=172.20.1.11
     networks:
       subnet_1:
         ipv4_address: 172.20.1.11
     depends_on:
       - router1
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.1.3' 'ping 172.20.1.10' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.1.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
+  router2:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    environment:
+      - vizinhos=[router1, 172.20.1.3, 1],[router3, 172.20.3.3, 1]
+      - my_ip=172.20.2.3
+      - my_name=router2
+    networks:
+      subnet_1:
+        ipv4_address: 172.20.1.2
+      subnet_3:
+        ipv4_address: 172.20.3.4
+      subnet_2:
+        ipv4_address: 172.20.2.3
+    cap_add:
+      - NET_ADMIN
+    command: /bin/bash -c "ip route del default && python router.py"
   host2a:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host2a
-      - my_ip=172.20.2.10
     networks:
       subnet_2:
         ipv4_address: 172.20.2.10
     depends_on:
       - router2
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.2.3' 'ping 172.20.2.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.2.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
   host2b:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host2b
-      - my_ip=172.20.2.11
     networks:
       subnet_2:
         ipv4_address: 172.20.2.11
     depends_on:
       - router2
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.2.3' 'ping 172.20.2.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.2.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
+  router3:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    environment:
+      - vizinhos=[router2, 172.20.2.3, 1],[router4, 172.20.4.3, 1]
+      - my_ip=172.20.3.3
+      - my_name=router3
+    networks:
+      subnet_2:
+        ipv4_address: 172.20.2.2
+      subnet_4:
+        ipv4_address: 172.20.4.4
+      subnet_3:
+        ipv4_address: 172.20.3.3
+    cap_add:
+      - NET_ADMIN
+    command: /bin/bash -c "ip route del default && python router.py"
   host3a:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host3a
-      - my_ip=172.20.3.10
     networks:
       subnet_3:
         ipv4_address: 172.20.3.10
     depends_on:
       - router3
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.3.3' 'ping 172.20.3.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.3.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
   host3b:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host3b
-      - my_ip=172.20.3.11
     networks:
       subnet_3:
         ipv4_address: 172.20.3.11
     depends_on:
       - router3
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.3.3' 'ping 172.20.3.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.4.10' 'ping 172.20.4.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.3.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
+  router4:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    environment:
+      - vizinhos=[router3, 172.20.3.3, 1],[router5, 172.20.5.3, 1]
+      - my_ip=172.20.4.3
+      - my_name=router4
+    networks:
+      subnet_3:
+        ipv4_address: 172.20.3.2
+      subnet_5:
+        ipv4_address: 172.20.5.4
+      subnet_4:
+        ipv4_address: 172.20.4.3
+    cap_add:
+      - NET_ADMIN
+    command: /bin/bash -c "ip route del default && python router.py"
   host4a:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host4a
-      - my_ip=172.20.4.10
     networks:
       subnet_4:
         ipv4_address: 172.20.4.10
     depends_on:
       - router4
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.4.3' 'ping 172.20.4.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.4.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
   host4b:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host4b
-      - my_ip=172.20.4.11
     networks:
       subnet_4:
         ipv4_address: 172.20.4.11
     depends_on:
       - router4
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.4.3' 'ping 172.20.4.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.5.10' 'ping 172.20.5.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.4.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
+  router5:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    environment:
+      - vizinhos=[router1, 172.20.1.3, 1],[router4, 172.20.4.3, 1]
+      - my_ip=172.20.5.3
+      - my_name=router5
+    networks:
+      subnet_1:
+        ipv4_address: 172.20.1.4
+      subnet_4:
+        ipv4_address: 172.20.4.2
+      subnet_5:
+        ipv4_address: 172.20.5.3
+    cap_add:
+      - NET_ADMIN
+    command: /bin/bash -c "ip route del default && python router.py"
   host5a:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host5a
-      - my_ip=172.20.5.10
     networks:
       subnet_5:
         ipv4_address: 172.20.5.10
     depends_on:
       - router5
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.5.3' 'ping 172.20.5.11' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.5.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
   host5b:
     build:
-      context: ./host
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: host/Dockerfile
     environment:
       - my_name=host5b
-      - my_ip=172.20.5.11
     networks:
       subnet_5:
         ipv4_address: 172.20.5.11
     depends_on:
       - router5
-    command: ["sh", "-c", "sleep 10 && python main.py --test 'ping 172.20.5.3' 'ping 172.20.5.10' 'ping 172.20.1.10' 'ping 172.20.1.11' 'ping 172.20.2.10' 'ping 172.20.2.11' 'ping 172.20.3.10' 'ping 172.20.3.11' 'ping 172.20.4.10' 'ping 172.20.4.11'"]
-    volumes:
-      - ./logs:/app/logs
+    command: /bin/bash -c "ip route del default && ip route add default via 172.20.5.3 dev eth0 && python main.py"
     cap_add:
       - NET_ADMIN
-
 networks:
   subnet_1:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.1.0/24
+          gateway: 172.20.1.1
   subnet_2:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.2.0/24
+          gateway: 172.20.2.1
   subnet_3:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.3.0/24
+          gateway: 172.20.3.1
   subnet_4:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.4.0/24
+          gateway: 172.20.4.1
   subnet_5:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.5.0/24
+          gateway: 172.20.5.1
