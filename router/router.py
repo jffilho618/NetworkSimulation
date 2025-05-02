@@ -95,11 +95,14 @@ class NetworkInterface:
         rotas_remover = {}
         rotas_replase = {}
         connected_subnets = NetworkInterface.get_connected_subnets()
+        
+        # Filtra rotas que já estão diretamente conectadas
         for destino, proximo_salto in rotas.items():
             if destino in connected_subnets:
                 log("rotas", f"Sub-rede {destino} já está diretamente conectada, ignorando rota.", ROTEADOR_NAME)
                 continue
             rotas_adicionar[destino] = proximo_salto
+
         try:
             resultado = subprocess.run(
                 ["ip", "route", "show"],
@@ -109,20 +112,31 @@ class NetworkInterface:
             )
             for linha in resultado.stdout.splitlines():
                 partes = linha.split()
-                if partes[0] != "default" and partes[1] == "via":
-                    rede = partes[0]
-                    proximo_salto = partes[2]
-                    rotas_existentes[rede] = proximo_salto
+                if partes[0] == "default" or partes[1] != "via":
+                    continue
+                rede = partes[0]
+                proximo_salto = partes[2]
+                dev = partes[4] if len(partes) > 4 and partes[3] == "dev" else None
+                rotas_existentes[rede] = (proximo_salto, dev)
+            
+            # Determina quais rotas adicionar, remover ou substituir
             for rede, proximo_salto in rotas_adicionar.items():
                 if rede in rotas_existentes:
-                    if rotas_existentes[rede] == proximo_salto:
-                        continue  # Rota idêntica já existe, pular
+                    existente_proximo_salto, existente_dev = rotas_existentes[rede]
+                    if existente_proximo_salto == proximo_salto:
+                        log("rotas", f"Rota {rede} via {proximo_salto} já existe, ignorando.", ROTEADOR_NAME)
+                        continue
                     rotas_replase[rede] = proximo_salto
+                    log("rotas", f"Marcando rota {rede} para substituição: {existente_proximo_salto} -> {proximo_salto}.", ROTEADOR_NAME)
                 else:
                     rotas_adicionar[rede] = proximo_salto
-            for rede, proximo_salto in rotas_existentes.items():
+                    log("rotas", f"Marcando rota {rede} via {proximo_salto} para adição.", ROTEADOR_NAME)
+            
+            for rede, (proximo_salto, _) in rotas_existentes.items():
                 if rede not in rotas_adicionar and rede not in connected_subnets:
                     rotas_remover[rede] = proximo_salto
+                    log("rotas", f"Marcando rota {rede} via {proximo_salto} para remoção.", ROTEADOR_NAME)
+            
             return rotas_adicionar, rotas_remover, rotas_replase
         except Exception as e:
             log("erros", f"Erro ao obter rotas existentes: {e}", ROTEADOR_NAME)
@@ -192,6 +206,7 @@ class Router:
         self.lsdb = LSDB()
         self.seq = 0
         self.lsa_send_lock = threading.Lock()
+        self.route_calc_lock = threading.Lock()  # Novo lock para sincronizar recalcular_rotas
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.last_lsdb_hash = None
@@ -241,28 +256,29 @@ class Router:
             log("erros", f"Erro ao processar LSA: {e}", self.id)
 
     def recalcular_rotas(self):
-        lsdb_formatted = {lsa.id: {"id": lsa.id, "vizinhos": lsa.vizinhos, "seq": lsa.seq} for lsa in self.lsdb.lsas.values()}
-        lsdb_hash = json.dumps(lsdb_formatted, sort_keys=True)
-        if self.last_lsdb_hash == lsdb_hash:
-            log("rotas", "LSDB não mudou, pulando recálculo de rotas", self.id)
-            return
-        self.last_lsdb_hash = lsdb_hash
-        rotas = dijkstra(self.ip, lsdb_formatted)
-        rotas_validas = {}
-        for destino, proximo_salto in rotas.items():
-            for viz, (ip, _) in self.vizinhos.items():
-                if proximo_salto == ip:
-                    rotas_validas[destino] = proximo_salto
-                    break
-        NetworkInterface.salvar_lsdb_rotas_arquivo(lsdb_formatted, rotas_validas)
-        rotas_adicionar, rotas_remover, rotas_replase = NetworkInterface.obter_rotas_existentes(rotas_validas)
-        for destino in rotas_remover:
-            NetworkInterface.remover_interfaces(destino)
-        for destino, proximo_salto in rotas_adicionar.items():
-            NetworkInterface.adicionar_interface(destino, proximo_salto)
-        for destino, proximo_salto in rotas_replase.items():
-            NetworkInterface.replase_interface(destino, proximo_salto)
-        log("dijkstra", f"Rotas recalculadas: {rotas_validas}", self.id)
+        with self.route_calc_lock:  # Sincroniza chamadas a recalcular_rotas
+            lsdb_formatted = {lsa.id: {"id": lsa.id, "vizinhos": lsa.vizinhos, "seq": lsa.seq} for lsa in self.lsdb.lsas.values()}
+            lsdb_hash = json.dumps(lsdb_formatted, sort_keys=True)
+            if self.last_lsdb_hash == lsdb_hash:
+                log("rotas", "LSDB não mudou, pulando recálculo de rotas", self.id)
+                return
+            self.last_lsdb_hash = lsdb_hash
+            rotas = dijkstra(self.ip, lsdb_formatted)
+            rotas_validas = {}
+            for destino, proximo_salto in rotas.items():
+                for viz, (ip, _) in self.vizinhos.items():
+                    if proximo_salto == ip:
+                        rotas_validas[destino] = proximo_salto
+                        break
+            NetworkInterface.salvar_lsdb_rotas_arquivo(lsdb_formatted, rotas_validas)
+            rotas_adicionar, rotas_remover, rotas_replase = NetworkInterface.obter_rotas_existentes(rotas_validas)
+            for destino in rotas_remover:
+                NetworkInterface.remover_interfaces(destino)
+            for destino, proximo_salto in rotas_adicionar.items():
+                NetworkInterface.adicionar_interface(destino, proximo_salto)
+            for destino, proximo_salto in rotas_replase.items():
+                NetworkInterface.replase_interface(destino, proximo_salto)
+            log("dijkstra", f"Rotas recalculadas: {rotas_validas}", self.id)
 
     def escutar_lsa(self):
         self.socket.bind(("0.0.0.0", PORTA))
@@ -277,7 +293,7 @@ class Router:
     def enviar_periodicamente(self):
         while True:
             self.enviar_lsa()
-            time.sleep(5)
+            time.sleep(10)  # Aumentado de 5 para 10 segundos
 
     def iniciar(self):
         threads = [
