@@ -50,16 +50,18 @@ class NetworkUtils:
         return vizinhos_ativos
 
 class LSA:
-    def __init__(self, id: str, seq: int, vizinhos: Dict[str, Tuple[str, float]]):
+    def __init__(self, id: str, seq: int, vizinhos: Dict[str, Tuple[str, float]], subnets: set):
         self.id = id
         self.seq = seq
         self.vizinhos = vizinhos
+        self.subnets = subnets  # Sub-redes diretamente conectadas
 
     def to_dict(self) -> Dict:
         return {
             "id": self.id,
             "seq": self.seq,
-            "vizinhos": self.vizinhos
+            "vizinhos": self.vizinhos,
+            "subnets": list(self.subnets)  # Converte o set para lista para serialização JSON
         }
 
 class LSDB:
@@ -215,8 +217,10 @@ class Router:
 
     def criar_lsa(self, vizinhos_ativos: Dict[str, Tuple[str, float]]) -> LSA:
         self.seq += 1
-        lsa = LSA(self.ip, self.seq, vizinhos_ativos)
-        log("lsa", f"Criou LSA seq={self.seq}, vizinhos={vizinhos_ativos}", self.id)
+        # Obter sub-redes conectadas
+        connected_subnets = NetworkInterface.get_connected_subnets()
+        lsa = LSA(self.ip, self.seq, vizinhos_ativos, connected_subnets)
+        log("lsa", f"Criou LSA seq={self.seq}, vizinhos={vizinhos_ativos}, subnets={connected_subnets}", self.id)
         return lsa
 
     def enviar_lsa(self):
@@ -240,7 +244,9 @@ class Router:
     def propagar_lsa(self, lsa_data: bytes, origem_ip: str):
         try:
             lsa_dict = json.loads(lsa_data.decode())
-            lsa = LSA(lsa_dict["id"], lsa_dict["seq"], lsa_dict["vizinhos"])
+            # Extrair informações de sub-redes do LSA, se presentes
+            subnets = set(lsa_dict.get("subnets", []))
+            lsa = LSA(lsa_dict["id"], lsa_dict["seq"], lsa_dict["vizinhos"], subnets)
             if self.lsdb.atualizar_lsa(lsa):
                 for viz_id, (ip, _) in self.vizinhos.items():
                     if ip != origem_ip:
