@@ -6,6 +6,8 @@ import time
 import subprocess
 import netifaces
 import ipaddress
+import random  # Adicionado
+import hashlib # Adicionado
 from typing import Dict, Tuple
 from formater import Formatter
 from dycastra import dijkstra
@@ -23,6 +25,24 @@ def log(categoria: str, msg: str, origem: str = ""):
     with open(f"{LOG_BASE_DIR}/{categoria}.log", "a") as f:
         f.write(log_msg + "\n")
 
+def get_symmetric_random_weight(ip1: str, ip2: str) -> int:
+    """
+    Gera um peso aleatório determinístico e simétrico entre 1 e 10
+    com base nos dois endereços IP.
+    """
+    # Ordena os IPs lexicograficamente para garantir simetria
+    sorted_ips = sorted([ip1, ip2])
+    # Cria uma string de semente estável
+    seed_str = f"{sorted_ips[0]}-{sorted_ips[1]}"
+    # Usa um hash da string de semente para semear o gerador de números aleatórios
+    seed_int = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
+    # Semeia o gerador
+    random.seed(seed_int)
+    # Gera um inteiro aleatório entre 1 e 10
+    weight = random.randint(1, 10)
+    # log("peso_debug", f"Peso calculado para {ip1}-{ip2}: {weight} (seed_str: {seed_str})", ROTEADOR_NAME) # Log opcional
+    return weight
+
 class NetworkUtils:
     @staticmethod
     def _testar_ping(ip: str) -> Tuple[bool, float]:
@@ -38,19 +58,27 @@ class NetworkUtils:
         except Exception:
             return False, 0.0
 
+    # Substituído: realizar_pings por determinar_vizinhos_ativos_e_pesos
     @staticmethod
-    def realizar_pings(vizinhos: Dict[str, Tuple[str, int]]) -> Dict[str, Tuple[str, float]]:
-        vizinhos_ativos = {}
-        for viz, (ip, _) in vizinhos.items():
-            is_alive, tempo_ping = NetworkUtils._testar_ping(ip)
+    def determinar_vizinhos_ativos_e_pesos(vizinhos: Dict[str, Tuple[str, int]]) -> Dict[str, Tuple[str, int]]:
+        """Verifica quais vizinhos estão ativos e atribui pesos aleatórios simétricos."""
+        vizinhos_ativos_com_peso = {}
+        log("pesos_debug", f"Determinando vizinhos ativos e pesos para {ROTEADOR_NAME} ({ROTEADOR_IP})", ROTEADOR_NAME)
+        for viz_name, (viz_ip, _) in vizinhos.items():
+            is_alive, _ = NetworkUtils._testar_ping(viz_ip) # Ainda verifica se está vivo
             if is_alive:
-                vizinhos_ativos[viz] = (ip, tempo_ping)
+                # Calcula o peso aleatório simétrico
+                peso = get_symmetric_random_weight(ROTEADOR_IP, viz_ip)
+                vizinhos_ativos_com_peso[viz_name] = (viz_ip, peso)
+                log("pesos_debug", f"  - Vizinho {viz_name} ({viz_ip}) está ATIVO. Peso aleatório simétrico: {peso}", ROTEADOR_NAME)
             else:
-                log("lsa", f"Ping falhou para {viz} ({ip})", ROTEADOR_NAME)
-        return vizinhos_ativos
+                log("lsa", f"Ping falhou para {viz_name} ({viz_ip}), considerado INATIVO.", ROTEADOR_NAME)
+        log("pesos_debug", f"Vizinhos ativos com pesos determinados: {vizinhos_ativos_com_peso}", ROTEADOR_NAME)
+        return vizinhos_ativos_com_peso
 
 class LSA:
-    def __init__(self, id: str, seq: int, vizinhos: Dict[str, Tuple[str, float]], subnets: set):
+    # Atenção: O tipo do peso em vizinhos mudou de float para int
+    def __init__(self, id: str, seq: int, vizinhos: Dict[str, Tuple[str, int]], subnets: set):
         self.id = id
         self.seq = seq
         self.vizinhos = vizinhos
@@ -276,21 +304,20 @@ class Router:
     def criar_lsa(self) -> LSA:
         self.seq += 1
         connected_subnets = NetworkInterface.get_connected_subnets()
-        # Usa self.vizinhos_ativos (resultado do ping) para o LSA
+        # Usa self.vizinhos_ativos (agora com pesos aleatórios) para o LSA
         lsa = LSA(self.ip, self.seq, self.vizinhos_ativos, connected_subnets)
         log("lsa", f"Criou LSA seq={self.seq}, vizinhos_ativos={self.vizinhos_ativos}, subnets={connected_subnets}", self.id)
         return lsa
 
     def enviar_lsa(self):
         with self.lsa_send_lock:
-            # Atualiza a lista de vizinhos ativos ANTES de criar o LSA
-            self.vizinhos_ativos = NetworkUtils.realizar_pings(self.vizinhos)
+            # Atualiza a lista de vizinhos ativos e seus pesos ANTES de criar o LSA
+            self.vizinhos_ativos = NetworkUtils.determinar_vizinhos_ativos_e_pesos(self.vizinhos) # Atualizado
             if not self.vizinhos_ativos:
                 log("lsa", "Nenhum vizinho ativo detectado por ping", self.id)
                 # Mesmo sem vizinhos ativos, cria e envia LSA com subnets locais
-                # return # Não retorna mais, envia LSA mesmo sem vizinhos
 
-            lsa = self.criar_lsa() # Agora usa self.vizinhos_ativos
+            lsa = self.criar_lsa() # Agora usa self.vizinhos_ativos com pesos aleatórios
             lsa_json = json.dumps(lsa.to_dict()).encode()
 
             # Envia para TODOS os vizinhos configurados inicialmente
@@ -312,6 +339,7 @@ class Router:
             subnets = set(lsa_dict.get("subnets", []))
             # Recria vizinhos como dicionário para consistência
             vizinhos_lsa = lsa_dict.get("vizinhos", {})
+            # Atenção: O tipo do peso em vizinhos mudou de float para int
             lsa = LSA(lsa_dict["id"], lsa_dict["seq"], vizinhos_lsa, subnets)
 
             # Atualiza LSDB e verifica se houve mudança
@@ -453,4 +481,3 @@ class Router:
 if __name__ == "__main__":
     router = Router()
     router.iniciar()
-

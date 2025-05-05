@@ -1,0 +1,9 @@
+cd ~/REDES\ 2/NetworkSimulator
+docker compose down
+docker rm -f $(docker ps -a -q)
+docker network prune
+docker rmi -f $(docker images -q networksimulator-*)
+docker image prune -a
+docker compose up --build
+
+python router_show_tables.py 
