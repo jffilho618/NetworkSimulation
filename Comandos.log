@@ -6,4 +6,7 @@ docker rmi -f $(docker images -q networksimulator-*)
 docker image prune -a
 docker compose up --build
 
-python router_show_tables.py 
+python router_show_tables.py
+python router_connect_router.py
+python user_connect_router.py 
+python user_connect_user.py 

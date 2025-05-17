@@ -2,88 +2,119 @@ import os
 import threading
 import time
 
-# Cores para output
-class Colors:
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    BLUE = '\033[0;34m'
-    YELLOW = '\033[0;33m'
-    CYAN = '\033[0;36m'
-    MAGENTA = '\033[0;35m'
-    NC = '\033[0m'
+# Estilização para mensagens de saída no terminal (tons alterados)
+class EstilosImpressao:
+    ERRO_GRAVE =          "\033[1;91m" # Vermelho Brilhante Intenso
+    SUCESSO_TOTAL =       "\033[1;92m" # Verde Brilhante Intenso
+    AVISO_INFO =          "\033[1;94m" # Azul Brilhante Intenso (usado para informações gerais)
+    ALERTA_OPERACAO =     "\033[1;93m" # Amarelo Brilhante Intenso (usado para avisos de operações)
+    TITULO_BLOCO =        "\033[1;96m" # Ciano Brilhante Intenso
+    DESTAQUE_GERAL =      "\033[1;95m" # Magenta Brilhante Intenso
+    SEM_ESTILO_DEFINIDO = "\033[0m"
 
-CPU_COUNT = os.cpu_count() or 1
-MAX_WORKERS = CPU_COUNT * 4
+# Configuração do sistema para concorrência
+NUCLEOS_CPU_SISTEMA = os.cpu_count() or 1
+MAX_PINGS_PARALELOS = NUCLEOS_CPU_SISTEMA * 4
 
-def get_routers():
-    """Lê nomes dos containers router via os.popen."""
-    out = os.popen("docker ps --filter 'name=router' --format '{{.Names}}'").read()
-    return sorted(out.splitlines())
+def descobrir_containers_roteador():
+    """Recupera uma lista de nomes de containers de roteador em execução usando os.popen."""
+    resultado_comando = os.popen("docker ps --filter \"name=router\" --format \"{{.Names}}\"").read()
+    return sorted(resultado_comando.splitlines())
 
-def extract_num(name):
-    """Remove prefix 'router' e retorna só o número."""
-    pre = name.split('-')[1]
-    result = pre.split('router')[1]
-    return result
+def obter_id_roteador_pelo_nome_container(nome_completo_container):
+    """Extrai o ID numérico de uma string de nome de container de roteador.
+    Exemplo: meuprojeto-roteador2-1 -> 2
+    """
+    # Assume um padrão de nomenclatura consistente como projeto-roteador<ID>-instancia
+    try:
+        segmento_nome = nome_completo_container.split("-")[1] # ex: roteador2
+        # Correção: Usar split para remover o prefixo 'router' e obter apenas o número
+        id_numerico_roteador = segmento_nome.split("router")[1] # ex: 2
+        return id_numerico_roteador
+    except IndexError:
+        # Fallback se o padrão de nomenclatura for diferente
+        return nome_completo_container
         
 
-def ping_task(frm, to, ip, results, lock_thread):
-    """Thread worker: executa ping e armazena resultado."""
-    start = time.time()
-    cmd = f"docker exec {frm} ping -c 5 -W 0.1 {ip} > /dev/null 2>&1"
-    print(f"{Colors.YELLOW}{cmd}{Colors.NC}")
-    code = os.system(cmd)
-    elapsed = time.time() - start
-    success = (code == 0)
+def realizar_ping_roteador(ctr_roteador_origem, ctr_roteador_alvo, ip_addr_roteador_alvo, lista_saidas_ping, semaforo_lista_saidas):
+    """Função da thread de trabalho: executa ping entre roteadores e registra o resultado."""
+    tempo_inicio_operacao = time.time()
+    # Define o comando docker exec para pingar
+    cmd_ping_docker = f"docker exec {ctr_roteador_origem} ping -c 5 -W 0.1 {ip_addr_roteador_alvo} > /dev/null 2>&1"
+    print(f"{EstilosImpressao.ALERTA_OPERACAO}Executando: {cmd_ping_docker}{EstilosImpressao.SEM_ESTILO_DEFINIDO}")
     
-    with lock_thread:
-        results.append((frm, to, success, elapsed))
+    codigo_saida_cmd = os.system(cmd_ping_docker)
+    tempo_decorrido_operacao = time.time() - tempo_inicio_operacao
+    ping_foi_bem_sucedido = (codigo_saida_cmd == 0)
+    
+    # Adição segura à lista compartilhada de resultados
+    with semaforo_lista_saidas:
+        lista_saidas_ping.append((ctr_roteador_origem, ctr_roteador_alvo, ping_foi_bem_sucedido, tempo_decorrido_operacao))
 
-
-def main():
-    routers = get_routers()
-    if not routers:
-        print(f"{Colors.RED}Erro: nenhum roteador rodando. Execute 'make up'.{Colors.NC}")
+def executar_testes_ping_inter_roteadores():
+    """Função principal para gerenciar e relatar testes de ping entre todos os containers de roteador ativos."""
+    nomes_containers_roteadores_ativos = descobrir_containers_roteador()
+    if not nomes_containers_roteadores_ativos:
+        print(f"{EstilosImpressao.ERRO_GRAVE}Erro Crítico: Nenhum container de roteador está ativo no momento. Por favor, inicie-os (ex: com \"make up\").{EstilosImpressao.SEM_ESTILO_DEFINIDO}")
         return
 
-    tasks = [(f, t, f"172.20.{extract_num(t)}.3") for f in routers for t in routers if f != t]
+    # Prepara lista de operações de ping: (roteador_origem, roteador_alvo, ip_roteador_alvo)
+    # Assume que IPs de roteador alvo são como 172.20.<id_roteador>.3
+    lista_trabalhos_ping_roteador = []
+    for nome_r_origem in nomes_containers_roteadores_ativos:
+        for nome_r_alvo in nomes_containers_roteadores_ativos:
+            if nome_r_origem == nome_r_alvo: # Pula auto-ping
+                continue
+            id_r_alvo = obter_id_roteador_pelo_nome_container(nome_r_alvo)
+            ip_alvo_assumido_para_ping = f"172.20.{id_r_alvo}.3"
+            lista_trabalhos_ping_roteador.append((nome_r_origem, nome_r_alvo, ip_alvo_assumido_para_ping))
     
-    print(f"{Colors.MAGENTA}Iniciando {len(tasks)} pings com até {MAX_WORKERS} threads paralelas...{Colors.NC}")
+    print(f"{EstilosImpressao.DESTAQUE_GERAL}Iniciando {len(lista_trabalhos_ping_roteador)} pings inter-roteadores usando até {MAX_PINGS_PARALELOS} threads paralelas...{EstilosImpressao.SEM_ESTILO_DEFINIDO}")
     
-    results = []
-    threads = []
-    lock_thread = threading.Lock()
+    dados_ping_coletados = []
+    pool_threads_ativas = []
+    trava_coleta_dados = threading.Lock()
 
-    for frm, to, ip in tasks:
-        while len(threads) >= MAX_WORKERS:
-            threads = [thr for thr in threads if thr.is_alive()]
-            time.sleep(0.01)
+    # Despacha tarefas de ping para threads de trabalho
+    for roteador_origem, roteador_alvo, val_ip_alvo in lista_trabalhos_ping_roteador:
+        # Mecanismo simples para limitar threads concorrentes
+        while len(pool_threads_ativas) >= MAX_PINGS_PARALELOS:
+            pool_threads_ativas = [item_th for item_th in pool_threads_ativas if item_th.is_alive()] # Limpa threads finalizadas
+            if len(pool_threads_ativas) >= MAX_PINGS_PARALELOS:
+                time.sleep(0.05) # Pequeno atraso se o pool ainda estiver cheio
 
-        thread = threading.Thread(target=ping_task, args=(frm, to, ip, results, lock_thread))
-        thread.start()
-        threads.append(thread)
+        obj_thread = threading.Thread(target=realizar_ping_roteador, 
+                                      args=(roteador_origem, roteador_alvo, val_ip_alvo, dados_ping_coletados, trava_coleta_dados))
+        obj_thread.start()
+        pool_threads_ativas.append(obj_thread)
 
-    for thread in threads:
-        thread.join()
+    # Espera todas as threads completarem sua execução
+    for instancia_t in pool_threads_ativas:
+        instancia_t.join()
 
-    summary = {}
-    for frm, to, ok, tempo in results:
-        summary.setdefault(frm, []).append((to, ok, tempo))
+    # Agrega resultados para um resumo estruturado
+    resultados_ping_por_origem = {}
+    for res_roteador_origem, res_roteador_alvo, res_ok, res_tempo_s in dados_ping_coletados:
+        resultados_ping_por_origem.setdefault(res_roteador_origem, []).append((res_roteador_alvo, res_ok, res_tempo_s))
 
-    total_ok = 0
-    total = len(results)
+    total_conexoes_bem_sucedidas = 0
+    total_tentativas_ping = len(dados_ping_coletados)
 
-    for frm in sorted(summary):
-        print(f"\n{Colors.CYAN}=== Roteador {frm} ==={Colors.NC}")
+    # Exibe o resumo final de todas as operações de ping
+    print(f"\n{EstilosImpressao.TITULO_BLOCO}=== Resumo do Teste de Conectividade Inter-Roteadores ==={EstilosImpressao.SEM_ESTILO_DEFINIDO}")
+    for chave_roteador_origem in sorted(resultados_ping_por_origem.keys()):
+        print(f"\n{EstilosImpressao.AVISO_INFO}Conectividade do Roteador: {chave_roteador_origem}{EstilosImpressao.SEM_ESTILO_DEFINIDO}")
         
-        for to, ok, tempo in summary[frm]:
-            status_color = Colors.GREEN if ok else Colors.RED
-            status = "OK" if ok else "Falha"
+        for valor_roteador_alvo_disp, sucesso_disp, tempo_decorrido_disp in resultados_ping_por_origem[chave_roteador_origem]:
+            cor_impressao_status = EstilosImpressao.SUCESSO_TOTAL if sucesso_disp else EstilosImpressao.ERRO_GRAVE
+            msg_texto_status = "OK" if sucesso_disp else "FALHOU"
             
-            print(f"{status_color}{frm} -> {to}: {status} (Tempo: {tempo:.2f}s){Colors.NC}")
-            total_ok += ok
+            print(f"{cor_impressao_status}{chave_roteador_origem} -> {valor_roteador_alvo_disp}: {msg_texto_status} (Tempo: {tempo_decorrido_disp:.2f}s){EstilosImpressao.SEM_ESTILO_DEFINIDO}")
+            if sucesso_disp:
+                 total_conexoes_bem_sucedidas +=1 # Incrementa se bem-sucedido
 
-    print(f"\n{Colors.YELLOW}Total geral: {total_ok}/{total} conexões bem-sucedidas{Colors.NC}")
+    print(f"\n{EstilosImpressao.DESTAQUE_GERAL}Resumo Geral - Tentativas Totais: {total_tentativas_ping}, Pings Bem-sucedidos: {total_conexoes_bem_sucedidas}, Pings Falhados: {total_tentativas_ping - total_conexoes_bem_sucedidas}{EstilosImpressao.SEM_ESTILO_DEFINIDO}")
 
 if __name__ == "__main__":
-    main()
+    executar_testes_ping_inter_roteadores()
+
