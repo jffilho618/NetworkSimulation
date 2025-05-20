@@ -6,8 +6,8 @@ import time
 import subprocess
 import netifaces
 import ipaddress
-import random  # Adicionado
-import hashlib # Adicionado
+import random 
+import hashlib
 from typing import Dict, Tuple
 from formater import Formatter
 from dycastra import dijkstra
