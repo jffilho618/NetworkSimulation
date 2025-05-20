@@ -7,7 +7,27 @@ Este projeto simula uma rede de computadores utilizando Docker e Python, impleme
 *   Docker: [Instruções de instalação](https://docs.docker.com/engine/install/)
 *   Docker Compose: [Instruções de instalação](https://docs.docker.com/compose/install/)
 *   Python 3.x (para executar os scripts de teste no host)
-*   Bibliotecas Python (no host): `pip install docker` (necessário para os scripts de teste que interagem com a API do Docker)
+*   Bibliotecas Python necessárias:
+    * Para interação com Docker: `docker`
+    * Para o simulador de rede: `netifaces`, `ipaddress`
+
+## Instalação das Dependências
+
+Você pode instalar todas as dependências necessárias usando o arquivo `requirements.txt` fornecido:
+
+```bash
+pip install -r requirements.txt
+```
+
+Ou instalar manualmente cada biblioteca:
+
+```bash
+# Para interação com Docker (necessário para os scripts de teste)
+pip install docker
+
+# Para o simulador de rede
+pip install netifaces==0.11.0 ipaddress==1.0.23
+```
 
 ## Execução
 
